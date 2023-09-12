@@ -8,6 +8,9 @@ use winit::{
     window::WindowBuilder,
 };
 use winit_input_helper::WinitInputHelper;
+use std::sync::{Arc, RwLock};
+use std::thread;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -18,7 +21,6 @@ enum CellState {
 
 struct ConwayState {
     cells: Vec<CellState>,
-    scratch_cells: Vec<CellState>,
     width: usize,
     height: usize
 }
@@ -26,13 +28,12 @@ struct ConwayState {
 impl ConwayState {
     pub fn new(width: usize, height: usize) -> Self {
         let mut cells = vec![CellState::Dead; width*height];
-        let scratch_cells = vec![CellState::Dead; width*height];
         for (i,c) in cells.iter_mut().enumerate() {
             if rand::random::<bool>() {
                 *c = CellState::Alive;
             }
         }
-        ConwayState {cells, scratch_cells, width, height}
+        ConwayState {cells, width, height}
     }
 
     fn count_alive_neighbors(&self, x: usize, y:usize) -> usize {
@@ -64,7 +65,7 @@ impl ConwayState {
         count
     }
     
-    fn next_cell_state(&mut self,  x: usize, y:usize) {
+    fn next_cell_state(&self, scratch: &mut ConwayState, x: usize, y:usize) {
         let linear_id = (y as usize)*self.width + (x as usize);
         let cell_state = &self.cells[linear_id];
         let live_count = self.count_alive_neighbors(x, y);
@@ -73,16 +74,19 @@ impl ConwayState {
             (CellState::Alive, 2 | 3) => CellState::Alive,
             _ => CellState::Dead
         };
-        self.scratch_cells[linear_id] = ns;
+        scratch.cells[linear_id] = ns;
     }
     
-    pub fn next_state(&mut self) {
+    pub fn next_state(&self, scratch: &mut ConwayState) {
         for i in 0..self.width {
             for j in 0..self.height {
-                self.next_cell_state(i, j);
+                self.next_cell_state(scratch, i, j);
             }
         }
-        std::mem::swap(&mut self.cells, &mut self.scratch_cells);
+    }
+
+    pub fn swap_state(&mut self, scratch: &mut ConwayState) {
+        std::mem::swap(&mut self.cells, &mut scratch.cells);
     }
 }
 
@@ -118,8 +122,8 @@ fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
     }
 }
 
-const WIDTH: u32 = 2048;
-const HEIGHT: u32 = 1268;
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 800;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -143,24 +147,44 @@ fn main() -> Result<(), Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let mut life = ConwayState::new((WIDTH/2) as usize, (HEIGHT/2) as usize);
+    let mut life = Arc::new(RwLock::new(ConwayState::new((WIDTH) as usize, (HEIGHT) as usize)));
+    let c_life = Arc::clone(&life);
+
     let mut paused = false;
 
     let mut draw_state: Option<bool> = None;
     let mut now = std::time::Instant::now();
-    let mut frames: f64 = 0.0;
+
+    let frames = Arc::new(AtomicI32::new(0));
+    let c_frames = Arc::clone(&frames);
+
+    thread::spawn(move || {
+        let mut scratch = ConwayState::new((WIDTH) as usize, (HEIGHT) as usize);
+
+        loop {
+            if let Ok(l) = c_life.read() {
+                l.next_state(&mut scratch);
+            }
+            if let Ok(mut l) = c_life.write() {
+                l.swap_state(&mut scratch);
+            }
+            c_frames.fetch_add(1, Ordering::Relaxed);
+        }
+    });
 
     event_loop.run(move |event, _, control_flow| {
         // The one and only event that winit_input_helper doesn't have for us...
         if let Event::RedrawRequested(_) = event {
             //life.draw(pixels.frame_mut());
-            draw(WIDTH, HEIGHT, pixels.frame_mut(), &life);
-            life.next_state();
-            frames += 1.0;
+            if let Ok(life) = life.read()
+            {
+                draw(WIDTH, HEIGHT, pixels.frame_mut(), &life);
+            }
+
             let duration = now.elapsed().as_micros() as f64;
             if(duration >= 1_000_000.0) {
-                println!("FPS: {}", 1_000_000.0*(frames/duration) );
-                frames = 0.0;
+                println!("FPS: {}", 1_000_000.0*((frames.load(Ordering::Relaxed) as f64)/duration) );
+                frames.store(0, Ordering::SeqCst);
                 now = std::time::Instant::now();
             }
 
