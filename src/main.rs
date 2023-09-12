@@ -118,8 +118,8 @@ fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
     }
 }
 
-const WIDTH: u32 = 500;
-const HEIGHT: u32 = 400;
+const WIDTH: u32 = 2048;
+const HEIGHT: u32 = 1268;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -143,10 +143,12 @@ fn main() -> Result<(), Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let mut life = ConwayState::new((WIDTH/4) as usize, (HEIGHT/4) as usize);
+    let mut life = ConwayState::new((WIDTH/2) as usize, (HEIGHT/2) as usize);
     let mut paused = false;
 
     let mut draw_state: Option<bool> = None;
+    let mut now = std::time::Instant::now();
+    let mut frames: f64 = 0.0;
 
     event_loop.run(move |event, _, control_flow| {
         // The one and only event that winit_input_helper doesn't have for us...
@@ -154,6 +156,14 @@ fn main() -> Result<(), Error> {
             //life.draw(pixels.frame_mut());
             draw(WIDTH, HEIGHT, pixels.frame_mut(), &life);
             life.next_state();
+            frames += 1.0;
+            let duration = now.elapsed().as_micros() as f64;
+            if(duration >= 1_000_000.0) {
+                println!("FPS: {}", 1_000_000.0*(frames/duration) );
+                frames = 0.0;
+                now = std::time::Instant::now();
+            }
+
             //panic!("ENd");
             if let Err(err) = pixels.render() {
                 *control_flow = ControlFlow::Exit;
