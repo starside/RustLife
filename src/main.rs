@@ -79,7 +79,7 @@ impl ConwayState {
     }
     
     pub fn next_state(&self, scratch: &mut ConwayState) {
-        let chunk_size:usize = 8;
+        let chunk_size:usize = 2;
 
         scratch.cells.par_chunks_mut(chunk_size * self.width).enumerate().map(|(i, cells)| {
             let row = i * chunk_size;
@@ -128,8 +128,8 @@ fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
     }
 }
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 800;
+const WIDTH: u32 = 1920;
+const HEIGHT: u32 = 1080;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -138,10 +138,8 @@ fn main() -> Result<(), Error> {
 
     let window = {
         let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
-        let scaled_size = LogicalSize::new(WIDTH as f64 * 3.0, HEIGHT as f64 * 3.0);
         WindowBuilder::new()
             .with_title("Conway's Game of Life")
-            .with_inner_size(scaled_size)
             .with_min_inner_size(size)
             .build(&event_loop)
             .unwrap()
