@@ -11,6 +11,7 @@ use winit_input_helper::WinitInputHelper;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::sync::atomic::{AtomicI32, Ordering};
+use rayon::prelude::*;
 
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -65,7 +66,7 @@ impl ConwayState {
         count
     }
     
-    fn next_cell_state(&self, scratch: &mut ConwayState, x: usize, y:usize) {
+    fn next_cell_state(&self, x: usize, y:usize) -> CellState{
         let linear_id = (y as usize)*self.width + (x as usize);
         let cell_state = &self.cells[linear_id];
         let live_count = self.count_alive_neighbors(x, y);
@@ -74,15 +75,20 @@ impl ConwayState {
             (CellState::Alive, 2 | 3) => CellState::Alive,
             _ => CellState::Dead
         };
-        scratch.cells[linear_id] = ns;
+        ns
     }
     
     pub fn next_state(&self, scratch: &mut ConwayState) {
-        for i in 0..self.width {
-            for j in 0..self.height {
-                self.next_cell_state(scratch, i, j);
+        let chunk_size:usize = 8;
+
+        scratch.cells.par_chunks_mut(chunk_size * self.width).enumerate().map(|(i, cells)| {
+            let row = i * chunk_size;
+            for i in 0..self.width {
+                for j in 0..chunk_size {
+                    cells[j*self.width + i] = self.next_cell_state(i, j + row);
+                }
             }
-        }
+        }).count();
     }
 
     pub fn swap_state(&mut self, scratch: &mut ConwayState) {
