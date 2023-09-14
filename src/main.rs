@@ -79,13 +79,27 @@ impl ConwayState {
     }
     
     pub fn next_state(&self, scratch: &mut ConwayState) {
-        let chunk_size:usize = 2;
+        const rows_in_chunk:usize = 2;
+        let elements_in_chunk = rows_in_chunk * self.width;
+        let num_chunks = self.cells.len() / elements_in_chunk;
+        let rows_in_last_chunk = (self.cells.len() - num_chunks * elements_in_chunk) / self.width;
 
-        scratch.cells.par_chunks_mut(chunk_size * self.width).enumerate().map(|(i, cells)| {
-            let row = i * chunk_size;
-            for i in 0..self.width {
-                for j in 0..chunk_size {
-                    cells[j*self.width + i] = self.next_cell_state(i, j + row);
+        scratch.cells.par_chunks_mut(elements_in_chunk).enumerate().map(|(chunk, cells)| {
+            let row = chunk * rows_in_chunk;
+            if chunk < num_chunks
+            {
+                for j in 0..rows_in_chunk  {
+                    for i in 0..self.width {
+                        cells[j*self.width + i] = self.next_cell_state(i, j + row);
+                    }
+                }
+            }
+            else {
+                for j in 0..rows_in_last_chunk
+                {
+                    for i in 0..self.width{
+                        cells[j*self.width + i] = self.next_cell_state(i, j + row);
+                    }
                 }
             }
         }).count();
@@ -128,8 +142,11 @@ fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
     }
 }
 
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+const WIDTH: u32 = 1024;
+const HEIGHT: u32 = 1024;
+
+const GAME_WIDTH: u32 = 2048;
+const GAME_HEIGHT: u32 = 2048;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
@@ -151,7 +168,7 @@ fn main() -> Result<(), Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let mut life = Arc::new(RwLock::new(ConwayState::new((WIDTH) as usize, (HEIGHT) as usize)));
+    let mut life = Arc::new(RwLock::new(ConwayState::new(GAME_WIDTH as usize, GAME_HEIGHT as usize)));
     let c_life = Arc::clone(&life);
 
     let mut paused = false;
@@ -163,7 +180,7 @@ fn main() -> Result<(), Error> {
     let c_frames = Arc::clone(&frames);
 
     thread::spawn(move || {
-        let mut scratch = ConwayState::new((WIDTH) as usize, (HEIGHT) as usize);
+        let mut scratch = ConwayState::new(GAME_WIDTH as usize, GAME_HEIGHT as usize);
 
         loop {
             if let Ok(l) = c_life.read() {
