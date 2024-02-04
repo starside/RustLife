@@ -110,12 +110,28 @@ impl ConwayState {
     }
 }
 
+fn pixel_scale(game_dim: u32, screen_dim: u32) -> Vec<(usize, f64)>
+{
+    let pixel_dim = ((game_dim as f64) / (screen_dim as f64)).max(1.0);
+    let states_per_pixel_dim = pixel_dim.ceil() as u32;
+    let pixel_dim_weights: Vec<_> = (0..states_per_pixel_dim)
+        .map(|x| {
+            (pixel_dim - (x as f64))/ pixel_dim
+        })
+        .enumerate().collect();
+    pixel_dim_weights
+}
+
 fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
     let width_f = (width) as f64;
     let height_f = (height) as f64;
 
     let state_width: f64 = state.width as f64;
     let state_height: f64 = state.height as f64;
+
+    let pixel_width_weights = pixel_scale(GAME_WIDTH, WIDTH);
+    let pixel_height_weights = pixel_scale(GAME_HEIGHT, HEIGHT);
+    let normalization = 1.0/((pixel_width_weights.len() + pixel_height_weights.len()) as f64);
 
     for (i, pix) in screen.chunks_exact_mut(4).enumerate() {
         let y = (i as u32 / width) as f64 / height_f;
@@ -126,27 +142,39 @@ fn draw(width: u32, height: u32, screen: &mut [u8], state: &ConwayState) {
        {
             let x_id = x_border.floor() as usize;
             let y_id = y_border.floor() as usize;
-            let linear_id = y_id * state.width + x_id;
-            match state.cells[linear_id] {
-                CellState::Alive => {
-                    let color = [0xff, 0xff, 0xff, 0xff];
-                    pix.copy_from_slice(&color);
-                },
-                CellState::Dead => {
-                    let color = [0x0, 0x00, 0x00, 0xff];
-                    pix.copy_from_slice(&color);
+            let mut color_acc = &mut [0.0, 0.0, 0.0, 0.0];
+
+            for (x_offset, x_weight) in &pixel_width_weights
+            {
+                for(y_offset, y_weight) in &pixel_height_weights {
+                    let linear_id = (y_id + y_offset) * state.width + x_id + x_offset;
+                    let cell_color = match state.cells[linear_id] {
+                        CellState::Alive => {
+                            [1.0, 1.0, 1.0, 1.0]
+                        },
+                        CellState::Dead => {
+                            [0.0, 0.0, 0.0, 0.0]
+                        }
+                    };
+
+                    for (i, v) in cell_color.iter().enumerate() {
+                        color_acc[i] += *v * (x_weight + y_weight) * 255.0 * normalization;
+                    }
                 }
             }
+
+           let color:[u8;4] = [color_acc[0] as u8, color_acc[1] as u8, color_acc[2] as u8, 0xff];
+           pix.copy_from_slice(&color);
 
         }
     }
 }
 
-const WIDTH: u32 = 1024;
-const HEIGHT: u32 = 1024;
+const WIDTH: u32 = 512;
+const HEIGHT: u32 = 512;
 
-const GAME_WIDTH: u32 = 2048;
-const GAME_HEIGHT: u32 = 2048;
+const GAME_WIDTH: u32 = 4*WIDTH;
+const GAME_HEIGHT: u32 = 4*HEIGHT;
 
 fn main() -> Result<(), Error> {
     env_logger::init();
